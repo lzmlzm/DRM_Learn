@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
+#include <memory.h>
 
 struct buffer_object {
 	uint32_t width;
@@ -27,8 +28,9 @@ struct buffer_object buf[2];
 static int modeset_create_fb(int fd, struct buffer_object *bo, uint32_t color)
 {
 	struct drm_mode_create_dumb create = {};
- 	struct drm_mode_map_dumb map = {};
+ 	struct drm_mode_map_dumb map_dumb = {};
 	uint32_t i;
+	uint8_t* map = NULL;
 
 	create.width = bo->width;
 	create.height = bo->height;
@@ -41,14 +43,16 @@ static int modeset_create_fb(int fd, struct buffer_object *bo, uint32_t color)
 	drmModeAddFB(fd, bo->width, bo->height, 24, 32, bo->pitch,
 			   bo->handle, &bo->fb_id);
 
-	map.handle = create.handle;
-	drmIoctl(fd, DRM_IOCTL_MODE_MAP_DUMB, &map);
+	map_dumb.handle = create.handle;
+	drmIoctl(fd, DRM_IOCTL_MODE_MAP_DUMB, &map_dumb);
 
-	bo->vaddr = mmap(0, create.size, PROT_READ | PROT_WRITE,
-			MAP_SHARED, fd, map.offset);
-
-	for (i = 0; i < (bo->size / 4); i++)
-		bo->vaddr[i] = color;
+	//buffer除8 只显示1/8区域
+	for (i = 0; i < bo->size / 8; i++)
+	{
+		//memset(map,0,map_dumb.offset);
+		map = (uint8_t*)(map_dumb.offset);
+		map[i] = color;
+	}
 
 	return 0;
 }
@@ -72,8 +76,13 @@ int main(int argc, char **argv)
 	drmModeRes *res;
 	uint32_t conn_id;
 	uint32_t crtc_id;
-  int i =30;
-	fd = open("/dev/dri/card1", O_RDWR | O_CLOEXEC);
+    int i =30;
+	fd = drmOpen("drm-nvdc",  NULL);
+	if (fd < 0)
+	{
+		printf("error open device\n");
+		return 0;
+	}
 
 	res = drmModeGetResources(fd);
 	crtc_id = res->crtcs[0];
